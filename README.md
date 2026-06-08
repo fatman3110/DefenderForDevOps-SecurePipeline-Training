@@ -118,6 +118,10 @@ Build ─▶ Test ─┬─▶ SAST (Bandit + Semgrep) ─┐
 パイプラインの `Deploy` ステージは、ビルドしたコンテナイメージを **Azure Container Registry** にプッシュし、**Azure App Service**（PaaS ランタイム実行環境） にデプロイする。デプロイ後は Azure App Service の URL `https://<webAppName>.azurewebsites.net` でアプリにアクセスでき、脆弱性の手動確認（XSS・アクセスコントロール・Cookie など）が当該 URL 上で行える。
 本手順を行わない場合でも、CI/CD パイプラインの実行と脆弱性の確認が可能である。
 
+> 🛑 **このアプリは意図的に脆弱であり、`azurewebsites.net` は既定でインターネットに公開される。デプロイしたアプリを公開状態のまま放置しないこと。** 意図しない悪用を行われる可能性があるため、手動確認が済んだら、次のいずれかを必ず実施すること。
+> - **使い終わり次第、削除する**（[後片付け](./docs/AZURE-SETUP.md#後片付け)）。最も安全。
+> - 残す場合は、**Azure App Service のアクセス制限で自分の IP のみ許可する**（手順: [アクセスを自分の IP のみに制限する](./docs/AZURE-SETUP.md#8-アクセスを自分の-ip-のみに制限する強く推奨)）。
+
 > **Azure Container Registry や Azure App Service などの Azure リソースはパイプラインでは自動作成されない。** リソースの作成、サービス接続・RBAC の設定、そして作成した値をパイプライン変数のどこに反映するかの詳細な GUI 操作手順は **[`docs/AZURE-SETUP.md`](./docs/AZURE-SETUP.md)** を参照すること。
 
 ### 環境準備概要（詳細は事前準備ガイド）
