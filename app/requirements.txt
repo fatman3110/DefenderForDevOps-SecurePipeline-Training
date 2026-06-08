@@ -1,0 +1,11 @@
+# 脆弱性 #3: 古い脆弱なライブラリ
+# 既知の CVE を含む古いバージョンを意図的に固定している。
+# pip-audit（SCA）および Trivy（コンテナ）が検出する。
+# 本来は最新の修正済みバージョンを使用すべき。
+Flask==2.0.1
+Werkzeug==2.0.1
+Jinja2==3.0.0
+itsdangerous==2.0.1
+MarkupSafe==2.0.1
+# 本番起動用 WSGI サーバ
+gunicorn==20.1.0

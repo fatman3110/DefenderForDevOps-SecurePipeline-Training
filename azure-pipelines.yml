@@ -1,0 +1,448 @@
+# ============================================================
+# DefenderForDevOps セキュアパイプライン トレーニング
+# CI/CD パイプライン（単体テスト + セキュリティスキャン + デプロイ）
+#
+# OSS スキャナ（Bandit / Semgrep / Gitleaks / pip-audit / Trivy / OWASP ZAP）は
+# 既定で常時実行する。CodeQL と Microsoft Security DevOps は有償ライセンスが
+# 必要なため、変数フラグで明示的に有効化したときのみ実行する。
+#
+# SARIF 形式のスキャン結果は CodeAnalysisLogs アーティファクトに集約し、
+# 無料の "SARIF SAST Scans Tab" 拡張で Scans タブに表示する。
+# ============================================================
+
+trigger:
+  branches:
+    include:
+      - main
+      - master
+  paths:
+    exclude:
+      - '*.md'
+      - docs/*
+
+pr:
+  branches:
+    include:
+      - main
+      - master
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - name: pythonVersion
+    value: '3.11'
+  - name: imageName
+    value: 'defenderfordevops-training'
+  - name: imageTag
+    value: '$(Build.BuildId)'
+  # ----- Azure へのデプロイ設定 -----
+  # 下記 3 変数を自分の環境の値に設定し、DEPLOY_TO_AZURE を 'true' にすると
+  # Deploy ステージが Azure Web App for Containers へデプロイする。
+  # 既定値が空のままだとデプロイは行われず、ステージはプレースホルダのまま終了する。
+  - name: DEPLOY_TO_AZURE
+    value: 'false'
+  # Azure Resource Manager サービス接続の名前（ACR への push と Web App への deploy に使用）
+  - name: azureServiceConnection
+    value: ''
+  # Azure Container Registry のログインサーバー（例: myregistry.azurecr.io）
+  - name: acrLoginServer
+    value: ''
+  # デプロイ先 Azure Web App（Linux / コンテナ）の名前
+  - name: webAppName
+    value: ''
+  # CodeQL（GitHub Advanced Security for Azure DevOps / 有償）を有効化する場合は true
+  - name: USE_CODEQL
+    value: 'false'
+  # Microsoft Security DevOps（Defender for Cloud 連携）を有効化する場合は true
+  - name: USE_DEFENDER_FOR_DEVOPS
+    value: 'false'
+
+stages:
+# ============================================================
+# Stage: Build — アプリケーション成果物のビルド
+# ============================================================
+- stage: Build
+  displayName: 'Build'
+  jobs:
+  - job: BuildApp
+    displayName: 'Build application package'
+    steps:
+    - checkout: self
+      fetchDepth: '0'
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '$(pythonVersion)'
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish source artifact (drop)'
+      inputs:
+        targetPath: '$(Build.SourcesDirectory)'
+        artifact: 'drop'
+
+# ============================================================
+# Stage: Test — 単体テスト（pytest）
+# ============================================================
+- stage: Test
+  displayName: 'Unit Test'
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+  - job: UnitTest
+    displayName: 'Run pytest'
+    steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '$(pythonVersion)'
+    - script: |
+        python -m pip install --upgrade pip
+        pip install -r app/requirements.txt
+        pip install pytest
+      displayName: 'Install dependencies'
+    - script: |
+        python -m pytest tests/ \
+          --junitxml=test-results.xml -v
+      displayName: 'Run tests'
+    - task: PublishTestResults@2
+      displayName: 'Publish test results'
+      condition: succeededOrFailed()
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: '**/test-results.xml'
+        testRunTitle: 'Unit Tests'
+
+# ============================================================
+# Stage: SAST — Bandit + Semgrep（静的コード解析）
+# ============================================================
+- stage: SAST
+  displayName: 'SAST (Bandit + Semgrep)'
+  dependsOn: Test
+  condition: succeeded()
+  jobs:
+  - job: Sast
+    displayName: 'Run SAST scanners'
+    steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '$(pythonVersion)'
+    - script: |
+        set +e
+        python -m pip install --upgrade pip
+        pip install bandit bandit-sarif-formatter semgrep
+        mkdir -p sarif
+        bandit -r app -f sarif -o sarif/bandit.sarif
+        semgrep --config=auto --sarif --output=sarif/semgrep.sarif app
+        exit 0
+      displayName: 'Bandit + Semgrep'
+      continueOnError: 'true'
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish SAST SARIF'
+      condition: succeededOrFailed()
+      inputs:
+        targetPath: '$(Build.SourcesDirectory)/sarif'
+        artifact: 'sarif-sast'
+
+# ============================================================
+# Stage: SCA — pip-audit（依存関係の既知脆弱性）
+# ============================================================
+- stage: SCA
+  displayName: 'SCA (pip-audit)'
+  dependsOn: Test
+  condition: succeeded()
+  jobs:
+  - job: Sca
+    displayName: 'Run pip-audit'
+    steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: '$(pythonVersion)'
+    - script: |
+        set +e
+        python -m pip install --upgrade pip
+        pip install pip-audit
+        mkdir -p sarif
+        pip-audit -r app/requirements.txt --format json --output pip-audit.json
+        python tools/pipaudit_to_sarif.py pip-audit.json sarif/pip-audit.sarif
+        exit 0
+      displayName: 'pip-audit -> SARIF'
+      continueOnError: 'true'
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish SCA SARIF'
+      condition: succeededOrFailed()
+      inputs:
+        targetPath: '$(Build.SourcesDirectory)/sarif'
+        artifact: 'sarif-sca'
+
+# ============================================================
+# Stage: Secret — Gitleaks（ハードコードされた認証情報）
+# ============================================================
+- stage: Secret
+  displayName: 'Secret Scan (Gitleaks)'
+  dependsOn: Test
+  condition: succeeded()
+  jobs:
+  - job: Secret
+    displayName: 'Run Gitleaks'
+    steps:
+    - script: |
+        set +e
+        GITLEAKS_VERSION=8.18.4
+        curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o gitleaks.tar.gz
+        tar -xzf gitleaks.tar.gz gitleaks
+        mkdir -p sarif
+        ./gitleaks detect --source . --report-format sarif --report-path sarif/gitleaks.sarif --no-git
+        exit 0
+      displayName: 'Gitleaks -> SARIF'
+      continueOnError: 'true'
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish Secret SARIF'
+      condition: succeededOrFailed()
+      inputs:
+        targetPath: '$(Build.SourcesDirectory)/sarif'
+        artifact: 'sarif-secret'
+
+# ============================================================
+# Stage: DockerBuild — コンテナイメージのビルド
+# ============================================================
+- stage: DockerBuild
+  displayName: 'Docker Build'
+  dependsOn:
+    - SAST
+    - SCA
+    - Secret
+  condition: succeeded()
+  jobs:
+  - job: DockerBuild
+    displayName: 'Build container image'
+    steps:
+    - script: |
+        docker build -t $(imageName):$(imageTag) ./app
+        mkdir -p image
+        docker save $(imageName):$(imageTag) -o image/image.tar
+      displayName: 'docker build + save'
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish docker image artifact'
+      inputs:
+        targetPath: '$(Build.SourcesDirectory)/image'
+        artifact: 'docker-image'
+
+# ============================================================
+# Stage: Trivy — コンテナイメージの脆弱性スキャン
+# ============================================================
+- stage: Trivy
+  displayName: 'Container Scan (Trivy)'
+  dependsOn: DockerBuild
+  condition: succeeded()
+  jobs:
+  - job: Trivy
+    displayName: 'Run Trivy'
+    steps:
+    - download: current
+      artifact: 'docker-image'
+    - script: |
+        set +e
+        docker load -i $(Pipeline.Workspace)/docker-image/image.tar
+        TRIVY_VERSION=0.53.0
+        curl -sSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" -o trivy.tar.gz
+        tar -xzf trivy.tar.gz trivy
+        mkdir -p sarif
+        ./trivy image --format sarif --output sarif/trivy.sarif $(imageName):$(imageTag)
+        exit 0
+      displayName: 'Trivy image scan -> SARIF'
+      continueOnError: 'true'
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish Trivy SARIF'
+      condition: succeededOrFailed()
+      inputs:
+        targetPath: '$(Build.SourcesDirectory)/sarif'
+        artifact: 'sarif-trivy'
+
+# ============================================================
+# Stage: PublishScans — 全 SARIF を CodeAnalysisLogs に集約
+# SARIF SAST Scans Tab 拡張が CodeAnalysisLogs を読んで Scans タブに表示する。
+# ============================================================
+- stage: PublishScans
+  displayName: 'Publish Scans'
+  dependsOn: Trivy
+  condition: succeededOrFailed()
+  jobs:
+  - job: PublishScans
+    displayName: 'Aggregate SARIF to CodeAnalysisLogs'
+    steps:
+    - download: current
+      artifact: 'sarif-sast'
+      continueOnError: 'true'
+    - download: current
+      artifact: 'sarif-sca'
+      continueOnError: 'true'
+    - download: current
+      artifact: 'sarif-secret'
+      continueOnError: 'true'
+    - download: current
+      artifact: 'sarif-trivy'
+      continueOnError: 'true'
+    - script: |
+        set +e
+        mkdir -p CodeAnalysisLogs
+        find $(Pipeline.Workspace) -name '*.sarif' -type f | while read f; do
+          cp "$f" "CodeAnalysisLogs/$(basename "$f")"
+        done
+        echo '--- CodeAnalysisLogs ---'
+        ls -la CodeAnalysisLogs/
+        exit 0
+      displayName: 'Collect SARIF files'
+      continueOnError: 'true'
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish CodeAnalysisLogs (Scans tab)'
+      condition: succeededOrFailed()
+      inputs:
+        PathtoPublish: '$(Build.SourcesDirectory)/CodeAnalysisLogs'
+        ArtifactName: 'CodeAnalysisLogs'
+        publishLocation: 'Container'
+
+# ============================================================
+# Stage: Deploy — Azure Web App for Containers へのデプロイ
+# DEPLOY_TO_AZURE=true かつ各サービス接続・変数が設定されている場合に実行する。
+# 1) ビルド済みイメージを Azure Container Registry へプッシュ
+# 2) Azure Web App for Containers にデプロイ
+# デプロイ後は https://<webAppName>.azurewebsites.net でアプリにアクセスできる。
+# ============================================================
+- stage: Deploy
+  displayName: 'Deploy (Azure Web App for Containers)'
+  dependsOn: PublishScans
+  condition: succeeded()
+  jobs:
+  - job: DeployToAzure
+    displayName: 'Push to ACR and deploy'
+    condition: eq(variables['DEPLOY_TO_AZURE'], 'true')
+    steps:
+    - task: AzureCLI@2
+      displayName: 'Build and push image to Azure Container Registry'
+      inputs:
+        azureSubscription: '$(azureServiceConnection)'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          set -e
+          REGISTRY_NAME="${ACR_LOGIN_SERVER%%.*}"
+          az acr login --name "$REGISTRY_NAME"
+          docker build -t "$ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG" ./app
+          docker push "$ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG"
+      env:
+        ACR_LOGIN_SERVER: $(acrLoginServer)
+        IMAGE_NAME: $(imageName)
+        IMAGE_TAG: $(imageTag)
+    - task: AzureWebAppContainer@1
+      displayName: 'Deploy to Azure Web App for Containers'
+      inputs:
+        azureSubscription: '$(azureServiceConnection)'
+        appName: '$(webAppName)'
+        containers: '$(acrLoginServer)/$(imageName):$(imageTag)'
+  - job: DeploySkipped
+    displayName: 'Deploy skipped (not configured)'
+    condition: ne(variables['DEPLOY_TO_AZURE'], 'true')
+    steps:
+    - script: |
+        echo "DEPLOY_TO_AZURE が 'true' でないためデプロイをスキップした。"
+        echo "Azure へデプロイするには azureServiceConnection / dockerRegistryServiceConnection /"
+        echo "acrLoginServer / webAppName を設定し、DEPLOY_TO_AZURE を 'true' にする。"
+      displayName: 'Deploy placeholder'
+
+# ============================================================
+# Stage: DAST — OWASP ZAP Baseline（独立ステージ）
+# Test にのみ依存し、デプロイチェーンとは独立して実行する。
+# 結果は HTML レポートとしてアーティファクトに発行する。
+# ============================================================
+- stage: DAST
+  displayName: 'DAST (OWASP ZAP)'
+  dependsOn: Test
+  condition: succeeded()
+  jobs:
+  - job: Dast
+    displayName: 'Run OWASP ZAP Baseline'
+    steps:
+    - script: |
+        set +e
+        docker build -t $(imageName):dast ./app
+        docker rm -f dast-target 2>/dev/null || true
+        docker run -d --name dast-target -p 5000:5000 $(imageName):dast
+        sleep 5
+        mkdir -p zap
+        chmod 777 zap
+        docker run --rm --network host -v $(Build.SourcesDirectory)/zap:/zap/wrk:rw \
+          ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+          -t http://localhost:5000 -r zap-report.html -J zap-report.json
+        echo "ZAP scan finished with exit code $?"
+        exit 0
+      displayName: 'ZAP baseline scan'
+      continueOnError: 'true'
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish ZAP report'
+      condition: succeededOrFailed()
+      inputs:
+        targetPath: '$(Build.SourcesDirectory)/zap'
+        artifact: 'zap-report'
+
+# ============================================================
+# Stage: CodeQL（任意・有償）— GitHub Advanced Security for Azure DevOps
+# 独立ステージ。USE_CODEQL=true のときのみ実行する。
+# 結果は Advanced Security の Code scanning alerts に表示される。
+# 注意: CodeQL は OSS ツールではなく、商用 CI/CD では GitHub Advanced Security for Azure DevOps のライセンスが必要。
+# ============================================================
+- stage: CodeQL
+  displayName: 'CodeQL (optional, GitHub Advanced Security for Azure DevOps)'
+  dependsOn: Test
+  condition: and(succeeded(), eq(variables['USE_CODEQL'], 'true'))
+  jobs:
+  - job: CodeQL
+    displayName: 'Run CodeQL'
+    steps:
+    # GitHub Advanced Security for Azure DevOps 拡張が必要。
+    # 拡張を組織にインストールしたうえで、下記タスクのコメントを解除して有効化する。
+    # 注意: VS Code のスキーマ検証はマーケットプレース拡張のタスクを認識しないため、
+    #       コメント解除後はローカルエディタ上に警告が出るが、実行には影響しない。
+    # - task: AdvancedSecurity-Codeql-Init@1
+    #   displayName: 'Initialize CodeQL'
+    #   inputs:
+    #     languages: 'python'
+    #     querysuite: 'security-extended'
+    # - task: AdvancedSecurity-Codeql-Analyze@1
+    #   displayName: 'CodeQL Analyze'
+    - script: |
+        echo "CodeQL を実行するには GitHub Advanced Security for Azure DevOps 拡張をインストールし、上記タスクのコメントを解除する。"
+      displayName: 'CodeQL placeholder'
+
+# ============================================================
+# Stage: Microsoft Security DevOps（任意・有償連携）
+# 独立ステージ。USE_DEFENDER_FOR_DEVOPS=true のときのみ実行する。
+# OSS 個別ツールとの重複を避けるため、tools は trivy に限定している。
+# 結果は CodeAnalysisLogs（msdo.sarif）に出力され、リポジトリを Microsoft Defender for Cloud に
+# オンボードすると DevOps security ブレードに集約表示される。
+# ============================================================
+- stage: MicrosoftSecurityDevOps
+  displayName: 'Microsoft Security DevOps (optional)'
+  dependsOn: DockerBuild
+  condition: and(succeeded(), eq(variables['USE_DEFENDER_FOR_DEVOPS'], 'true'))
+  jobs:
+  - job: MicrosoftSecurityDevOps
+    displayName: 'Run Microsoft Security DevOps'
+    steps:
+    - download: current
+      artifact: 'docker-image'
+    - script: |
+        docker load -i $(Pipeline.Workspace)/docker-image/image.tar
+      displayName: 'Load image for container scan'
+    # Microsoft Security DevOps 拡張が必要。拡張を組織にインストールしたうえで、
+    # 下記タスクのコメントを解除して有効化する。OSS 個別ツールとの重複を避けるため
+    # tools は trivy に限定している。
+    # 注意: VS Code のスキーマ検証はマーケットプレース拡張のタスクを認識しないため、
+    #       コメント解除後はローカルエディタ上に警告が出るが、実行には影響しない。
+    # - task: MicrosoftSecurityDevOps@1
+    #   displayName: 'Microsoft Security DevOps'
+    #   inputs:
+    #     categories: 'containers,code'
+    #     tools: 'trivy'
+    #     break: false
+    #   continueOnError: 'true'
+    - script: |
+        echo "Microsoft Security DevOps を実行するには拡張をインストールし、上記タスクのコメントを解除する。"
+      displayName: 'Microsoft Security DevOps placeholder'

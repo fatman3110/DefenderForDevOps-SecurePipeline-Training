@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8">
+    <title>DefenderForDevOps トレーニングアプリ</title>
+    <style>
+        body { font-family: sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; }
+        .card { border: 1px solid #ddd; border-radius: 8px; padding: 16px 20px; margin: 16px 0; }
+        .warn { background: #fff4f4; border-color: #f0bcbc; }
+        a { color: #0a66c2; }
+    </style>
+</head>
+<body>
+    <h1>DefenderForDevOps セキュアパイプライン トレーニング</h1>
+    <div class="card warn">
+        <strong>注意:</strong> このアプリは意図的に脆弱性を含む教材です。本番環境では使用しないでください。
+    </div>
+
+    {% if user %}
+    <div class="card">
+        <p>{{ user.display_name }} としてログイン中です。</p>
+        <p>
+            <a href="{{ url_for('profile', user_id=user.id) }}">自分のプロフィール</a> ｜
+            <a href="{{ url_for('logout') }}">ログアウト</a>
+        </p>
+    </div>
+    {% else %}
+    <div class="card">
+        <p>ログインしていません。</p>
+        <p><a href="{{ url_for('login') }}">ログイン</a></p>
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <h2>検索</h2>
+        <form action="{{ url_for('search') }}" method="get">
+            <input type="text" name="q" placeholder="検索ワード">
+            <button type="submit">検索</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>デモ用アカウント</h2>
+        <ul>
+            <li>alice / alice-password（user_id = 1）</li>
+            <li>bob / bob-password（user_id = 2）</li>
+        </ul>
+    </div>
+</body>
+</html>

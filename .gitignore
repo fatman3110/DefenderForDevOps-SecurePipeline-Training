@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+venv/
+env/
+
+# スキャン成果物
+sarif/
+*.sarif
+pip-audit.json
+zap/
+zap-report.*
+gitleaks
+trivy
+*.tar
+*.tar.gz
+
+# テスト結果
+test-results.xml
+
+# OS / エディタ
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
