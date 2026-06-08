@@ -45,7 +45,7 @@
 
 - **検出ツール**: Semgrep / Bandit（SAST）、OWASP ZAP（DAST）
 - **確認**: ZAP レポートの "Cross Site Scripting (Reflected)" を確認する。
-- **手動確認**: デプロイ済み Web App の次の URL（ローカル起動時は `http://localhost:5000`）を開くとスクリプトが実行される。
+- **手動確認**: デプロイ済み Azure App Service の次の URL（ローカル起動時は `http://localhost:5000`）を開くとスクリプトが実行される。
 
   ```text
   https://<webAppName>.azurewebsites.net/search?q=<script>alert(document.cookie)</script>
@@ -54,7 +54,7 @@
 ### #5 アクセスコントロールの脆弱性（IDOR）
 
 - **検出ツール**: 自動検出は困難（手動／ロジック検査が中心）
-- **手動確認**（デプロイ済み Web App またはローカル起動の URL で実施）:
+- **手動確認**（デプロイ済み Azure App Service またはローカル起動の URL で実施）:
   1. `alice` / `alice-password` でログインする（`/profile/1` が表示される）。
   2. URL を `/profile/2` に書き換える。
   3. ログインユーザーが alice のまま、bob の機密情報（SSN・給与）が閲覧できてしまう。

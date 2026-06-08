@@ -1,10 +1,53 @@
-# Azure デプロイ事前準備ガイド
+# 事前準備ガイド
 
-このパイプラインの `Deploy` ステージは、ビルドしたコンテナイメージを **Azure Container Registry（ACR）** に push し、**Azure Web App for Containers** にデプロイする。これらの Azure リソースとサービス接続は**パイプラインでは自動作成されない**ため、事前に手動で用意する。
+本ガイドは、本教材を実行するための事前準備を 2 部構成で説明する。
 
-本ガイドでは、Azure Portal と Azure DevOps の GUI 操作でリソースを作成し、作成した値を [`azure-pipelines.yml`](../azure-pipelines.yml) のどの変数に反映するかまでを説明する。
+- **第1部. 共通の事前準備（必須）**: パイプラインを動かすための土台となる Azure DevOps 組織・プロジェクトを用意する。デプロイの有無にかかわらず必要。
+- **第2部. デプロイ用の事前準備（任意）**: ビルドしたアプリを Azure にデプロイして動作確認したい場合のみ必要。Azure Container Registry / Azure App Service / サービス接続を用意する。
 
 > 画面名・メニュー位置・ボタン名は変更される可能性がある。最新の手順は各公式ドキュメントを参照すること。
+
+---
+
+# 第1部. 共通の事前準備（必須）
+
+パイプラインを実行するには、Azure DevOps の**組織**と、その中の**プロジェクト**が必要になる。すでに利用できる組織・プロジェクトがある場合はこの第1部を読み飛ばしてよい。
+
+## A. Azure DevOps 組織の作成
+
+1. ブラウザで [https://dev.azure.com](https://dev.azure.com) を開き、Microsoft アカウントまたは職場・学校アカウントでサインインする。
+2. 初めて利用する場合は、画面の案内に従って **New organization**（新しい組織の作成）を進める。
+   - 既存の組織がある場合は、左下の **New organization** から追加で作成できる。
+3. 組織名（例: `myorg-devsecops`）とホストするリージョンを指定し、作成する。
+
+> 参考: [組織またはプロジェクト コレクションの作成](https://learn.microsoft.com/azure/devops/organizations/accounts/create-organization)
+
+## B. プロジェクトの作成
+
+1. 作成した組織のトップページで **+ New project**（新しいプロジェクト）をクリックする。
+2. 次を入力する。
+   - **Project name**: 任意の名前（例: `DevSecOps-Training`）
+   - **Visibility**: **Private**（教材用途では非公開を推奨）
+   - **Version control**: **Git**
+3. **Create** をクリックする。
+
+> 参考: [プロジェクトの作成](https://learn.microsoft.com/azure/devops/organizations/projects/create-project)
+
+## C. コードのプッシュ
+
+作成したプロジェクトの **Repos** に本教材一式（このリポジトリの内容）をプッシュする。
+
+> これで第1部は完了。デプロイまで行う場合は第2部へ進む。デプロイしない場合は README の「トレーニング手順」に戻り、パイプラインの作成・実行へ進む。
+
+---
+
+# 第2部. デプロイ用の事前準備（任意）
+
+> この第2部は、ビルドしたアプリを Azure 上で動かして脆弱性を手動確認したい場合のみ実施する。デプロイを行わなくても、CI/CD パイプラインの実行とスキャン結果の確認は可能。
+
+パイプラインの `Deploy` ステージは、ビルドしたコンテナイメージを **Azure Container Registry** に push し、**Azure App Service**（Linux コンテナー）にデプロイする。これらの Azure リソースとサービス接続は**パイプラインでは自動作成されない**ため、事前に手動で用意する。
+
+ここでは、Azure Portal と Azure DevOps の GUI 操作でリソースを作成し、作成した値を [`azure-pipelines.yml`](../azure-pipelines.yml) のどの変数に反映するかまでを説明する。
 
 ## 全体像
 
@@ -12,7 +55,7 @@
 [Azure Portal]                          [Azure DevOps]
  1. リソースグループ                      4. サービス接続(ARM)
  2. Azure Container Registry  ──────┐     5. パイプライン変数へ反映
- 3. Web App for Containers          │
+ 3. Azure App Service               │
        │                            │
        └── サービスプリンシパルに ───┘
             AcrPush / Contributor を付与
@@ -24,7 +67,7 @@
 |---|----------------|----------|-------------------------------|
 | 1 | リソースグループ | Azure Portal | （変数には直接反映しない。下記リソースの入れ物） |
 | 2 | Azure Container Registry | Azure Portal | ログインサーバー → `acrLoginServer` |
-| 3 | Web App for Containers | Azure Portal | アプリ名 → `webAppName` |
+| 3 | Azure App Service（Linux コンテナー） | Azure Portal | アプリ名 → `webAppName` |
 | 4 | Azure Resource Manager サービス接続 | Azure DevOps | 接続名 → `azureServiceConnection` |
 | 5 | RBAC ロール割り当て（AcrPush / Contributor） | Azure Portal | （変数なし。サービス接続の権限） |
 | 6 | デプロイ有効化フラグ | パイプライン変数 | `DEPLOY_TO_AZURE` を `true` |
@@ -63,7 +106,7 @@
 
 ---
 
-## 3. Web App for Containers の作成（Azure Portal）
+## 3. Azure App Service（Linux コンテナー）の作成（Azure Portal）
 
 1. 検索ボックスに「App Services」と入力し、**App Services** を開く。
 2. **作成** > **Web アプリ** をクリックする。
@@ -109,31 +152,31 @@
 
 ## 5. RBAC ロールの割り当て（Azure Portal）
 
-手順 4 で作成されたサービスプリンシパル（サービス接続が使う ID）に、ACR への push と Web App へのデプロイの権限を付与する。
+手順 4 で作成されたサービスプリンシパル（サービス接続が使う ID）に、Azure Container Registry への push と Azure App Service へのデプロイの権限を付与する。
 
 ### 5-1. サービス接続が使う ID の名前を確認する
 
 1. Azure DevOps の **Project settings** > **Service connections** で、手順 4 のサービス接続を開く。
 2. **Manage Service Principal**（または接続詳細）のリンクから、Microsoft Entra ID 上のアプリ（サービスプリンシパル）の名前・アプリケーション ID を控える。
 
-### 5-2. ACR に AcrPush を付与する
+### 5-2. Azure Container Registry に AcrPush を付与する
 
-1. Azure Portal で手順 2 の Container Registry を開く。
+1. Azure Portal で手順 2 の Azure Container Registry を開く。
 2. 左メニューの **アクセス制御 (IAM)** を開く。
 3. **追加** > **ロールの割り当ての追加** をクリックする。
 4. **ロール** タブで **AcrPush** を選択する。
 5. **メンバー** タブで **+ メンバーを選択する** をクリックし、5-1 で確認したサービスプリンシパルを選ぶ。
 6. **レビューと割り当て** をクリックする。
 
-### 5-3. Web App（またはリソースグループ）に Contributor を付与する
+### 5-3. Azure App Service（またはリソースグループ）に Contributor を付与する
 
-1. Azure Portal で手順 3 の Web アプリ、または手順 1 のリソースグループを開く。
+1. Azure Portal で手順 3 の Azure App Service、または手順 1 のリソースグループを開く。
 2. **アクセス制御 (IAM)** > **追加** > **ロールの割り当ての追加** をクリックする。
 3. **ロール** タブで **共同作成者（Contributor）** を選択する。
 4. **メンバー** タブで同じサービスプリンシパルを選ぶ。
 5. **レビューと割り当て** をクリックする。
 
-> 最小権限を重視する場合は、Contributor の代わりに **Website Contributor** を Web アプリに付与してもよい。
+> 最小権限を重視する場合は、Contributor の代わりに **Website Contributor** を Azure App Service に付与してもよい。
 > 参考: [Azure portal を使用して Azure ロールを割り当てる](https://learn.microsoft.com/azure/role-based-access-control/role-assignments-portal)
 
 ---
@@ -159,8 +202,8 @@ variables:
 
 | 控えた値（出どころ） | パイプライン変数 | 例 |
 |----------------------|-----------------|----|
-| Container Registry のログインサーバー（手順 2-5） | `acrLoginServer` | `acrdevsecopstraining.azurecr.io` |
-| Web アプリの名前（手順 3） | `webAppName` | `app-devsecops-training` |
+| Azure Container Registry のログインサーバー（手順 2-5） | `acrLoginServer` | `acrdevsecopstraining.azurecr.io` |
+| Azure App Service（Web アプリ）の名前（手順 3） | `webAppName` | `app-devsecops-training` |
 | サービス接続の名前（手順 4） | `azureServiceConnection` | `sc-devsecops-training` |
 | デプロイ有効化 | `DEPLOY_TO_AZURE` | `true` |
 
@@ -171,15 +214,15 @@ variables:
 ## 7. デプロイの実行と確認
 
 1. 変数を設定したうえでパイプラインを実行する。
-2. `Deploy` ステージが成功すると、ACR へ push され Web App にデプロイされる。
+2. `Deploy` ステージが成功すると、Azure Container Registry へ push され Azure App Service にデプロイされる。
 3. ブラウザで `https://<webAppName>.azurewebsites.net` を開き、アプリが表示されることを確認する。
 
 うまくいかない場合は次を確認する。
 
 - `Deploy` ステージがスキップされる → `DEPLOY_TO_AZURE` が `true` か、各変数が空でないか。
-- ACR への push が失敗する → サービスプリンシパルに **AcrPush** が付与されているか、`acrLoginServer` が正しいか。
-- Web App へのデプロイが失敗する → サービスプリンシパルに **Contributor**（または Website Contributor）が付与されているか、`webAppName` が正しいか。
-- ページが表示されない → Web App の **ログ ストリーム** でコンテナ起動ログを確認する。アプリはコンテナ内で 5000 番ポートを使用する。
+- Azure Container Registry への push が失敗する → サービスプリンシパルに **AcrPush** が付与されているか、`acrLoginServer` が正しいか。
+- Azure App Service へのデプロイが失敗する → サービスプリンシパルに **Contributor**（または Website Contributor）が付与されているか、`webAppName` が正しいか。
+- ページが表示されない → Azure App Service の **ログ ストリーム** でコンテナ起動ログを確認する。アプリはコンテナ内で 5000 番ポートを使用する。
 
 ---
 
