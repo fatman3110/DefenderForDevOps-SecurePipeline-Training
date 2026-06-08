@@ -31,14 +31,24 @@
    - 画面の指示に従って Azure DevOps 組織を認可し、対象プロジェクト／リポジトリを選択する。
 
 4. **パイプラインで Microsoft Security DevOps を有効化**
-   - パイプライン変数を変更する。
+   - リポジトリ直下の [`azure-pipelines.yml`](../azure-pipelines.yml) を開き、`variables:` ブロック内にある `USE_DEFENDER_FOR_DEVOPS` の `value` を `'false'` から `'true'` に書き換える。
 
      ```yaml
-     - name: USE_DEFENDER_FOR_DEVOPS
-       value: 'true'
+     variables:
+       # ... 既存の変数 ...
+       - name: USE_DEFENDER_FOR_DEVOPS
+         value: 'true'              # 'false' から変更
      ```
 
-   - パイプラインを再実行すると `MicrosoftSecurityDevOps@1` タスクが動作し、結果が `CodeAnalysisLogs`（`msdo.sarif`）として発行される。
+   - 変更を保存し、`trigger` 対象ブランチ（`main` / `master`）へコミットして push する。
+
+     ```bash
+     git add azure-pipelines.yml
+     git commit -m "enable Microsoft Security DevOps stage"
+     git push origin master
+     ```
+
+   - push により CI トリガーでパイプラインが再実行される（または Azure DevOps の **Run pipeline** から手動実行する）。`USE_DEFENDER_FOR_DEVOPS` が `true` のとき `MicrosoftSecurityDevOps@1` タスクが動作し、結果が `CodeAnalysisLogs`（`msdo.sarif`）として発行される。
 
 5. **結果の確認**
    - Defender for Cloud > **DevOps security** ブレードで、リポジトリ単位の検出結果を確認する。
@@ -46,9 +56,32 @@
 
 ## OSS ツールとの重複について
 
-本パイプラインでは OSS の Bandit / Trivy などを個別ステージで常時実行している。Microsoft Security DevOps も同種のツール（例: Trivy）を内包するため、結果が重複しないよう本教材の Microsoft Security DevOps ステージでは `tools: 'trivy'` のみに限定している。Microsoft Security DevOps 側で実行するツールは要件に合わせて調整すること。
+Microsoft Security DevOps は、複数の静的解析ツールを内包したコマンドラインアプリケーションである。`MicrosoftSecurityDevOps@1` タスクの `tools` 入力で実行するツールを限定できる（既定はポリシーに従い全ツール）。
+
+公式ドキュメントに記載されている、Microsoft Security DevOps が内包する主なツールは次のとおり（最終更新の状況は出典を参照）。
+
+| ツール | 主な対象 | カテゴリ |
+|--------|---------|---------|
+| AntiMalware | Windows 上のマルウェアスキャン（Windows-latest エージェントで既定実行） | malware |
+| Bandit | Python ソースコード | code |
+| BinSkim | バイナリ（Windows / ELF） | artifacts |
+| Checkov | Terraform / CloudFormation / Kubernetes / Helm / Dockerfile / Bicep / ARM ほか | IaC |
+| ESLint | JavaScript | code |
+| IaCFileScanner | Terraform / CloudFormation / ARM / Bicep のテンプレートマッピング | IaC |
+| Template Analyzer | ARM テンプレート / Bicep（PSRule を含む） | IaC |
+| Terrascan | Terraform / Kubernetes / Helm / Kustomize / Dockerfile / CloudFormation | IaC |
+| Trivy | コンテナイメージ / IaC | containers / IaC |
+
+> `tools` 入力で指定できる値は `bandit` / `binskim` / `checkov` / `eslint` / `templateanalyzer` / `terrascan` / `trivy`。`categories` 入力（`code` / `artifacts` / `IaC` / `containers`）でカテゴリ単位の絞り込みも可能。
+>
+> **シークレットスキャン（CredScan）は 2023年9月20日に非推奨化**され、その役割は **GitHub Advanced Security for Azure DevOps** に置き換えられている。本教材ではシークレット検出に OSS の Gitleaks を使用している。
+> 出典: [Configure the Microsoft Security DevOps Azure DevOps extension](https://learn.microsoft.com/azure/defender-for-cloud/configure-azure-devops-extension)（ツール一覧・`tools`/`categories` 入力・CredScan 非推奨の記載）
+
+本教材では重複を避けるため、ツールを次のように役割分担している。本体パイプラインの OSS ステージでは **Bandit（SAST）** を常時実行し、**コンテナー／IaC スキャンは Microsoft Security DevOps を有効化したときに同ステージ側で実行**する。Microsoft Security DevOps ステージでは `tools: 'trivy,checkov'` に限定し（**Trivy** = コンテナイメージ、**Checkov** = IaC / Dockerfile）、本体 OSS ステージの Bandit と重複しないようにしている。
+
+> `USE_DEFENDER_FOR_DEVOPS` を有効化していない既定状態では、本体パイプラインに Trivy / Checkov のステージは含まれず、コンテナー／IaC スキャンは実行されない。Microsoft Security DevOps 側で実行するツールは要件に合わせて調整すること。
 
 ## CodeQL（GitHub Advanced Security for Azure DevOps）との違い
 
-- **CodeQL** は GitHub Advanced Security for Azure DevOps の機能で、結果は **Advanced Security > Code scanning alerts** に表示される。Microsoft Defender for Cloud の DevOps security とは別系統で、別途 GitHub Advanced Security for Azure DevOps のライセンスが必要になる。
-- **Microsoft Security DevOps**（本ページの連携）は Microsoft Defender for Cloud 側に集約する仕組みで、Microsoft Defender Cloud Security Posture Management が前提となる。
+- **CodeQL** は GitHub Advanced Security for Azure DevOps の機能で、結果は **Azure DevOps ポータル**（`dev.azure.com`）のリポジトリ画面 **Advanced Security > Code scanning alerts** に表示される（GitHub.com の画面ではない）。Microsoft Defender for Cloud の DevOps security とは別系統で、別途 GitHub Advanced Security for Azure DevOps のライセンスが必要になる。
+- 本ページの連携は **Microsoft Defender for Cloud** 側に集約する仕組みで、Microsoft Defender Cloud Security Posture Management が前提となる。

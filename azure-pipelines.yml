@@ -2,8 +2,10 @@
 # DefenderForDevOps セキュアパイプライン トレーニング
 # CI/CD パイプライン（単体テスト + セキュリティスキャン + デプロイ）
 #
-# OSS スキャナ（Bandit / Semgrep / Gitleaks / pip-audit / Trivy / OWASP ZAP）は
-# 既定で常時実行する。CodeQL と Microsoft Security DevOps は有償ライセンスが
+# OSS スキャナ（Bandit / Semgrep / Gitleaks / pip-audit / OWASP ZAP）は
+# 既定で常時実行する。コンテナー／IaC スキャン（Trivy / Checkov）は重複を避けるため
+# 本体パイプラインでは実行せず、Microsoft Security DevOps ステージ側でのみ実行する。
+# CodeQL と Microsoft Security DevOps は有償ライセンスが
 # 必要なため、変数フラグで明示的に有効化したときのみ実行する。
 #
 # SARIF 形式のスキャン結果は CodeAnalysisLogs アーティファクトに集約し、
@@ -226,43 +228,14 @@ stages:
         artifact: 'docker-image'
 
 # ============================================================
-# Stage: Trivy — コンテナイメージの脆弱性スキャン
-# ============================================================
-- stage: Trivy
-  displayName: 'Container Scan (Trivy)'
-  dependsOn: DockerBuild
-  condition: succeeded()
-  jobs:
-  - job: Trivy
-    displayName: 'Run Trivy'
-    steps:
-    - download: current
-      artifact: 'docker-image'
-    - script: |
-        set +e
-        docker load -i $(Pipeline.Workspace)/docker-image/image.tar
-        TRIVY_VERSION=0.53.0
-        curl -sSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" -o trivy.tar.gz
-        tar -xzf trivy.tar.gz trivy
-        mkdir -p sarif
-        ./trivy image --format sarif --output sarif/trivy.sarif $(imageName):$(imageTag)
-        exit 0
-      displayName: 'Trivy image scan -> SARIF'
-      continueOnError: 'true'
-    - task: PublishPipelineArtifact@1
-      displayName: 'Publish Trivy SARIF'
-      condition: succeededOrFailed()
-      inputs:
-        targetPath: '$(Build.SourcesDirectory)/sarif'
-        artifact: 'sarif-trivy'
-
-# ============================================================
 # Stage: PublishScans — 全 SARIF を CodeAnalysisLogs に集約
 # SARIF SAST Scans Tab 拡張が CodeAnalysisLogs を読んで Scans タブに表示する。
+# コンテナスキャン（Trivy）は本体パイプラインでは実行せず、
+# 有効化時に Microsoft Security DevOps ステージ側で実行する（重複回避）。
 # ============================================================
 - stage: PublishScans
   displayName: 'Publish Scans'
-  dependsOn: Trivy
+  dependsOn: DockerBuild
   condition: succeededOrFailed()
   jobs:
   - job: PublishScans
@@ -276,9 +249,6 @@ stages:
       continueOnError: 'true'
     - download: current
       artifact: 'sarif-secret'
-      continueOnError: 'true'
-    - download: current
-      artifact: 'sarif-trivy'
       continueOnError: 'true'
     - script: |
         set +e
@@ -414,7 +384,8 @@ stages:
 # ============================================================
 # Stage: Microsoft Security DevOps（任意・有償連携）
 # 独立ステージ。USE_DEFENDER_FOR_DEVOPS=true のときのみ実行する。
-# OSS 個別ツールとの重複を避けるため、tools は trivy に限定している。
+# 本体 OSS ステージ（Bandit など）との重複を避けるため、ここでは
+# tools を trivy（コンテナイメージ）と checkov（IaC / Dockerfile）に限定している。
 # 結果は CodeAnalysisLogs（msdo.sarif）に出力され、リポジトリを Microsoft Defender for Cloud に
 # オンボードすると DevOps security ブレードに集約表示される。
 # ============================================================
@@ -432,15 +403,14 @@ stages:
         docker load -i $(Pipeline.Workspace)/docker-image/image.tar
       displayName: 'Load image for container scan'
     # Microsoft Security DevOps 拡張が必要。拡張を組織にインストールしたうえで、
-    # 下記タスクのコメントを解除して有効化する。OSS 個別ツールとの重複を避けるため
-    # tools は trivy に限定している。
-    # 注意: VS Code のスキーマ検証はマーケットプレース拡張のタスクを認識しないため、
+    # 下記タスクのコメントを解除して有効化する。本体 OSS ステージ（Bandit）との重複を
+    # 避けるため、tools は trivy（コンテナ）と checkov（IaC / Dockerfile）に限定している。
+    # 注意: VS Code のスキーマ検証はマーケットプレス拡張のタスクを認識しないため、
     #       コメント解除後はローカルエディタ上に警告が出るが、実行には影響しない。
     # - task: MicrosoftSecurityDevOps@1
     #   displayName: 'Microsoft Security DevOps'
     #   inputs:
-    #     categories: 'containers,code'
-    #     tools: 'trivy'
+    #     tools: 'trivy,checkov'
     #     break: false
     #   continueOnError: 'true'
     - script: |

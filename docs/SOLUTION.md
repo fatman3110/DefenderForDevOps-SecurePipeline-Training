@@ -6,7 +6,12 @@
 
 ## #1 ハードコードされた認証情報
 
-シークレットをソースコードから排除し、環境変数（または Azure Key Vault）から取得する。
+シークレットをソースコードから排除し、 Azure Key Vault 等のシークレットストレージから取得する。下記の修正例ではアプリは環境変数経由で認証情報を受け取り、実際の値は Azure Key Vault に保管して Azure App Service のアプリ設定で Key Vault 参照として注入する（コード・リポジトリに平文を残さない）。
+
+> 参考:
+> - [Azure Key Vault の基本概念](https://learn.microsoft.com/azure/key-vault/general/basic-concepts)
+> - [App Service と Azure Functions で Key Vault 参照を使用する](https://learn.microsoft.com/azure/app-service/app-service-key-vault-references)
+> - [Key Vault シークレットを Python で取得する（azure-keyvault-secrets）](https://learn.microsoft.com/azure/key-vault/secrets/quick-create-python)
 
 **修正前**
 
@@ -27,8 +32,6 @@ DB_PASSWORD = os.environ.get("DB_PASSWORD")
 AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
 ```
-
-シークレットはパイプラインのシークレット変数や Key Vault で管理し、リポジトリにはコミットしない。
 
 ---
 
@@ -89,7 +92,7 @@ MarkupSafe>=2.1.5
 gunicorn>=22.0.0
 ```
 
-更新後は pip-audit / Trivy を再実行し、CVE が解消されたことを確認する。バージョンは演習時点の最新安定版を確認して指定すること。
+更新後は pip-audit（および Microsoft Security DevOps 有効時は Trivy）を再実行し、CVE が解消されたことを確認する。バージョンは演習時点の最新安定版を確認して指定すること。
 
 ---
 
