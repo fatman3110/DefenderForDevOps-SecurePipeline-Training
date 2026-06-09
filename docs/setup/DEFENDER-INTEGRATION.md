@@ -12,7 +12,8 @@
 |------|------|
 | Defender for Cloud | **Microsoft Defender Cloud Security Posture Management** プランの有効化が必要 |
 | 権限 | Azure サブスクリプションの **Subscription Contributor**（または Owner） |
-| Azure DevOps 権限 | コネクタ作成時に **Project Collection Administrator** |
+| Azure DevOps 権限 | コネクタ作成時に **Project Collection Administrator** が必要 |
+| Azure DevOps 組織ポリシー | **Third-party application access via OAuth** を **On** にする（**新規組織では既定 Off**。Off のままだとコネクタの自動検出に組織が表示されず、リソースが 0 件のままになる）。設定は **[Organization settings]** > **[Policies]** |
 | リポジトリ種別 | **Azure Repos の Git リポジトリ**のみ対応 |
 | リージョン | Defender for Cloud の DevOps セキュリティが提供されるリージョンに限定される（例: East Asia / Australia East / Canada Central / West Europe / North Europe / Sweden Central / UK South / East US / Central US）。最新の対応リージョンは [DevOps セキュリティのサポートと前提条件](https://learn.microsoft.com/azure/defender-for-cloud/devops-support#cloud-and-region-support) を参照 |
 | 拡張機能 | [Microsoft Security DevOps](https://marketplace.visualstudio.com/items?itemName=ms-securitydevops.microsoft-security-devops-azdevops) 拡張のインストール |
@@ -46,11 +47,29 @@
    > 参考: [拡張機能のインストール](https://learn.microsoft.com/azure/devops/marketplace/install-extension) / [拡張機能のリクエストと承認](https://learn.microsoft.com/azure/devops/marketplace/request-extensions) / [Project Collection Administrators の確認](https://learn.microsoft.com/azure/devops/organizations/security/look-up-project-collection-administrators)
 
 3. **DevOps コネクタの作成**
+
+   **3-0. 組織で OAuth サードパーティアクセスを有効化する（重要・先に実施）**
+
+   Defender for Cloud のコネクタは **Azure DevOps OAuth アプリ**として組織にアクセスする。このポリシーが Off だと、コネクタの「リソースの自動検出」で**対象組織が候補に表示されず**、リソースが 0 件のままになる（結果として DevOps セキュリティに何も出ない）。**このポリシーは新規組織では既定で Off** のため、明示的に On にする必要がある。
+
+   1. ブラウザで Azure DevOps 組織（`https://dev.azure.com/{組織名}`）にサインインする。
+   2. 左下の歯車アイコン **[Organization settings]**（組織の設定）を開く。
+   3. **[Security]** > **[Policies]** を開く。
+   4. **[Third-party application access via OAuth]** のトグルを **On** にする。
+      - この操作には **Project Collection Administrator** 権限が必要。
+
+   > 出典: [Change application connection & security policies for your organization](https://learn.microsoft.com/azure/devops/organizations/accounts/change-application-access-policies)（"Third-party application access through OAuth ... This policy is defaulted to off for all new organizations" の記載）
+
+   **3-1. コネクタを作成する**
    - [Azure Portal](https://portal.azure.com) を開き、 **Microsoft Defender for Cloud** >  **環境設定** > **環境を追加** > **Azure DevOps** を選択する。
-   - 画面の指示に従って Azure DevOps 組織を認可し、対象プロジェクト／リポジトリを選択する。
+   - 画面の指示に従って Azure DevOps 組織を認可する。**認可時にサインインするアカウントは、対象組織（例: `thiraga2026`）のメンバーで、Project Collection Administrator かつ Basic 以上のアクセスレベルであること**。別組織しか持たないアカウントで認可すると、対象組織が自動検出の候補に出ない。
+   - 「リソースの自動検出」では、確実に取り込むため **[既存および将来のすべての組織]** を選択することを推奨する（個別選択だと、後から作り直した組織／リポジトリが拾われない場合がある）。
+   - 対象プロジェクト／リポジトリを選択し、**[次へ：レビューと生成]** > 作成する。
+
+   > **反映に時間差**: コネクタ作成・再認可後、リポジトリがインベントリ / DevOps セキュリティに現れるまで**最大 8 時間**かかる。
 
 4. **パイプラインで Microsoft Security DevOps を有効化**
-   - リポジトリ直下の [`azure-pipelines.yml`](../azure-pipelines.yml) を開き、`variables:` ブロック内にある `USE_DEFENDER_FOR_DEVOPS` の `value` を `'false'` から `'true'` に書き換える。
+   - リポジトリ直下の [`azure-pipelines.yml`](../../azure-pipelines.yml) を開き、`variables:` ブロック内にある `USE_DEFENDER_FOR_DEVOPS` の `value` を `'false'` から `'true'` に書き換える。
 
      ```yaml
      variables:
@@ -59,7 +78,7 @@
          value: 'true'              # 'false' から変更
      ```
 
-   - 同じ [`azure-pipelines.yml`](../azure-pipelines.yml) の `MicrosoftSecurityDevOps` ステージ内で、コメントアウトされた `MicrosoftSecurityDevOps@1` タスクの行頭 `# ` を外して有効化し、末尾の `Microsoft Security DevOps placeholder` ステップ（echo のみ）を削除する。変数を `'true'` にしてもタスクのコメントを解除しない限り placeholder の echo が動くだけで、実スキャンは実行されない。
+   - 同じ [`azure-pipelines.yml`](../../azure-pipelines.yml) の `MicrosoftSecurityDevOps` ステージ内で、コメントアウトされた `MicrosoftSecurityDevOps@1` タスクの行頭 `# ` を外して有効化し、末尾の `Microsoft Security DevOps placeholder` ステップ（echo のみ）を削除する。変数を `'true'` にしてもタスクのコメントを解除しない限り placeholder の echo が動くだけで、実スキャンは実行されない。
 
      > VS Code のスキーマ検証はマーケットプレース拡張のタスクを認識しないため、コメント解除後はエディタ上に警告が出るが、実行には影響しない。
 
@@ -74,7 +93,7 @@
    - push により CI トリガーでパイプラインが再実行される（または Azure DevOps の **Run pipeline** から手動実行する）。`USE_DEFENDER_FOR_DEVOPS` が `true` のとき `MicrosoftSecurityDevOps@1` タスクが動作し、結果が `CodeAnalysisLogs`（`msdo.sarif`）として発行される。
 
 5. **結果の確認**
-   - Defender for Cloud > **DevOps security** ブレードで、リポジトリ単位の検出結果を確認する。
+   - Defender for Cloud > **DevOps セキュリティ** ブレードで、リポジトリ単位の検出結果を確認する。
    - データが反映されるまで時間がかかる場合がある。
 
 ## OSS ツールとの重複について
@@ -121,7 +140,7 @@ Microsoft Security DevOps は、複数の静的解析ツールを内包したコ
    > 出典: [Configure GitHub Advanced Security for Azure DevOps](https://learn.microsoft.com/azure/devops/repos/security/configure-github-advanced-security-features)（Repository-level onboarding）
 
 2. **変数を有効化**
-   - [`azure-pipelines.yml`](../azure-pipelines.yml) の `variables:` ブロック内にある `USE_CODEQL` の `value` を `'false'` から `'true'` に書き換える。
+   - [`azure-pipelines.yml`](../../azure-pipelines.yml) の `variables:` ブロック内にある `USE_CODEQL` の `value` を `'false'` から `'true'` に書き換える。
 
 3. **タスクのコメントを解除**
    - 同ファイルの `CodeQL` ステージ内で、コメントアウトされた `AdvancedSecurity-Codeql-Init@1` / `AdvancedSecurity-Codeql-Analyze@1` タスクの行頭 `# ` を外し、末尾の `CodeQL placeholder` ステップ（echo のみ）を削除する。

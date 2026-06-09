@@ -6,12 +6,13 @@
 
 ## #1 ハードコードされた認証情報
 
-シークレットをソースコードから排除し、 Azure Key Vault 等のシークレットストレージから取得する。下記の修正例ではアプリは環境変数経由で認証情報を受け取り、実際の値は Azure Key Vault に保管して Azure App Service のアプリ設定で Key Vault 参照として注入する（コード・リポジトリに平文を残さない）。
+シークレットをソースコードから排除し、 Azure Key Vault に保管して実行時に取得する。アプリには接続情報をハードコードせず、`DefaultAzureCredential`（Azure App Service のマネージド ID）で Key Vault に認証し、`SecretClient` でシークレットを読み出す。これによりコード・リポジトリにも環境変数にも平文を残さず、シークレットのローテーションやアクセス監査を Key Vault 側で一元管理できる。
 
 > 参考:
 > - [Azure Key Vault の基本概念](https://learn.microsoft.com/azure/key-vault/general/basic-concepts)
-> - [App Service と Azure Functions で Key Vault 参照を使用する](https://learn.microsoft.com/azure/app-service/app-service-key-vault-references)
 > - [Key Vault シークレットを Python で取得する（azure-keyvault-secrets）](https://learn.microsoft.com/azure/key-vault/secrets/quick-create-python)
+> - [DefaultAzureCredential によるパスワードレス認証](https://learn.microsoft.com/azure/developer/python/sdk/authentication/credential-chains)
+> - [App Service でマネージド ID を使う](https://learn.microsoft.com/azure/app-service/overview-managed-identity)
 
 **修正前**
 
@@ -25,13 +26,24 @@ AWS_SECRET_ACCESS_KEY = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 **修正後**
 
 ```python
-import os
+from azure.identity import DefaultAzureCredential
+from azure.keyvault.secrets import SecretClient
 
-app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
-DB_PASSWORD = os.environ.get("DB_PASSWORD")
-AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
-AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
+# Key Vault の URI のみコード外（アプリ設定の環境変数）から渡す。シークレット自体は保持しない。
+KEY_VAULT_URI = os.environ["KEY_VAULT_URI"]  # 例: https://<vault-name>.vault.azure.net/
+
+# マネージド ID（ローカル開発では Azure CLI ログイン等）で Key Vault に認証する。
+credential = DefaultAzureCredential()
+secret_client = SecretClient(vault_url=KEY_VAULT_URI, credential=credential)
+
+# 実行時に Key Vault からシークレットを取得する。
+app.config["SECRET_KEY"] = secret_client.get_secret("app-secret-key").value
+DB_PASSWORD = secret_client.get_secret("db-password").value
+AWS_ACCESS_KEY_ID = secret_client.get_secret("aws-access-key-id").value
+AWS_SECRET_ACCESS_KEY = secret_client.get_secret("aws-secret-access-key").value
 ```
+
+> シークレットの値ではなく **Key Vault の URI だけ**をアプリ設定で渡す点がポイント。Key Vault へのアクセスに使う SDK（認証用の `azure-identity`、シークレット取得用の `azure-keyvault-secrets`）が必要なので `requirements.txt` に両方を追加し、App Service のマネージド ID に Key Vault の **Key Vault シークレット ユーザー** ロール（または get/list アクセスポリシー）を付与しておくこと。
 
 ---
 

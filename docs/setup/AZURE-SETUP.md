@@ -45,7 +45,7 @@
 
 > 参考: [Git リポジトリをインポートする](https://learn.microsoft.com/azure/devops/repos/git/import-git-repository)
 
-> これで第1部は完了。デプロイまで行う場合は [第2部（デプロイ用の事前準備）](#第2部-デプロイ用の事前準備任意) へ進む。デプロイしない場合は [README の「トレーニング手順」](../README.md#トレーニング手順) に戻り、パイプラインの作成・実行へ進む。
+> これで第1部は完了。デプロイまで行う場合は [第2部（デプロイ用の事前準備）](#第2部-デプロイ用の事前準備任意) へ進む。デプロイしない場合は [README の「トレーニング手順」](../../README.md#トレーニング手順) に戻り、パイプラインの作成・実行へ進む。
 
 ---
 
@@ -55,7 +55,7 @@
 
 パイプラインの `Deploy` ステージは、ビルドしたコンテナイメージを **Azure Container Registry** に push し、**Azure App Service**（Linux コンテナー）にデプロイする。これらの Azure リソースとサービス接続は**パイプラインでは自動作成されない**ため、事前に手動で用意する。
 
-ここでは、Azure Portal と Azure DevOps の GUI 操作でリソースを作成し、作成した値を [`azure-pipelines.yml`](../azure-pipelines.yml) のどの変数に反映するかまでを説明する。
+ここでは、Azure Portal と Azure DevOps の GUI 操作でリソースを作成し、作成した値を [`azure-pipelines.yml`](../../azure-pipelines.yml) のどの変数に反映するかまでを説明する。
 
 ## 全体像
 
@@ -77,8 +77,9 @@
 | 2 | Azure Container Registry | Azure Portal | ログインサーバー → `acrLoginServer` |
 | 3 | Azure App Service（Linux コンテナー） | Azure Portal | アプリ名 → `webAppName` |
 | 4 | Azure Resource Manager サービス接続 | Azure DevOps | 接続名 → `azureServiceConnection` |
-| 5 | RBAC ロール割り当て（AcrPush / Contributor） | Azure Portal | （変数なし。サービス接続の権限） |
-| 6 | デプロイ有効化フラグ | パイプライン変数 | `DEPLOY_TO_AZURE` を `true` |
+| 5 | RBAC ロール割り当て（AcrPush / Website Contributor） | Azure Portal | （変数なし。サービス接続の権限） |
+| 6 | App Service の ACR pull 認証（マネージド ID + AcrPull） | Azure Portal | （変数なし。App Service が ACR から pull する権限） |
+| 7 | デプロイ有効化フラグ | パイプライン変数 | `DEPLOY_TO_AZURE` を `true` |
 
 ---
 
@@ -191,8 +192,6 @@
 
 ### 5-3. Azure App Service に Website Contributor を付与する
 
-デプロイで必要なのは「既存の Web アプリ（App Service）へのコード/コンテナ配置」だけなので、サブスクリプション全体を操作できる **共同作成者（Contributor）** ではなく、Web アプリ操作に限定された **Website Contributor** を、**Web アプリ単体のスコープ**に付与する（最小権限）。
-
 1. Azure Portal で手順 3 の Azure App Service（Web アプリ）を開く。
 2. **アクセス制御 (IAM)** > **追加** > **ロールの割り当ての追加** をクリックする。
 3. **ロール** タブで **Web サイト共同作成者** を選択する。
@@ -201,11 +200,39 @@
 
 > 参考: [Website Contributor / Web Plan Contributor（組み込みロール）](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/web-and-mobile)
 
----
+### 5-4. App Service が ACR からイメージを pull できるようにする（
+
+1. **マネージド ID を有効化する（Azure Portal）**
+   1. Azure Portal で手順 3 の App Service（Web アプリ）を開く。
+   2. 左メニューの **[設定]** > **[ID]** を開く。
+   3. **[システム割り当て済み]** タブで **状態** を **[オン]** にし、**[保存]** をクリックする。表示される **オブジェクト (プリンシパル) ID** を控える。
+2. **ACR に AcrPull を付与する（Azure Portal）**
+   1. Azure Portal で手順 2 の Azure Container Registry を開く。
+   2. 左メニューの **[アクセス制御 (IAM)]** を開く。
+   3. **[追加]** > **[ロールの割り当ての追加]** をクリックする。
+   4. **[ロール]**（職務ロール）タブで **AcrPull** を選択する。
+   5. **[メンバー]** タブで **[アクセスの割り当て先]** に **[マネージド ID]** を選び、**[+ メンバーを選択する]** から手順 1 の App Service（システム割り当てマネージド ID）を選ぶ。
+   6. **[レビューと割り当て]** をクリックする。
+3. **pull 認証にマネージド ID を使う設定にする（Azure Cloud Shell / Bash）**
+
+   Azure Portal 右上の **[Cloud Shell]**（`>_` アイコン）を開き、**[Bash]** を選んで次を実行する。
+
+   ```bash
+   # === 自分の環境に合わせて、ここだけ書き換える ===
+   RG="rg-devsecops-training"        # リソースグループ名（手順 1）
+   APP="app-devsecops-training"      # App Service（Web アプリ）名（手順 3）
+
+   # コマンド1: App Service の pull 認証にシステム割り当てマネージド ID を使う設定を有効化する
+   az webapp config set -g "$RG" -n "$APP" --generic-configurations '{"acrUseManagedIdentityCreds": true}'
+
+   # コマンド2: 設定を反映するため App Service を再起動
+   az webapp restart -g "$RG" -n "$APP"
+   ```
+
 
 ## 6. 準備した値をパイプラインに反映する
 
-手順 2〜4 で控えた値を [`azure-pipelines.yml`](../azure-pipelines.yml) の `variables` ブロックに設定し、`DEPLOY_TO_AZURE` を `true` にする。
+手順 2〜4 で控えた値を [`azure-pipelines.yml`](../../azure-pipelines.yml) の `variables` ブロックに設定し、`DEPLOY_TO_AZURE` を `true` にする。
 
 ```yaml
 variables:
@@ -229,13 +256,6 @@ variables:
 1. 変数を設定したうえでパイプラインを実行する。
 2. `Deploy` ステージが成功すると、Azure Container Registry へ push され Azure App Service にデプロイされる。
 3. ブラウザで Web アプリの **既定のドメイン**（手順 3 の手順 6 で控えた、`https://app-devsecops-training-xxxxxxxx.japaneast-01.azurewebsites.net` のような URL）を開き、アプリが表示されることを確認する。
-
-うまくいかない場合は次を確認する。
-
-- `Deploy` ステージがスキップされる → `DEPLOY_TO_AZURE` が `true` か、各変数が空でないか。
-- Azure Container Registry への push が失敗する → サービスプリンシパルに **AcrPush** が付与されているか、`acrLoginServer` が正しいか。
-- Azure App Service へのデプロイが失敗する → サービスプリンシパルに **Contributor**（または Website Contributor）が付与されているか、`webAppName` が正しいか。
-- ページが表示されない → Azure App Service の **ログ ストリーム** でコンテナ起動ログを確認する。アプリはコンテナ内で 5000 番ポートを使用する。
 
 > 🛑 **デプロイした Web アプリの既定ドメイン（手順 3 で控えた URL）は既定でインターネットに公開される。** 本アプリは意図的に脆弱なため、動作確認が済んだら速やかに削除する（[後片付け](#後片付け)）か、確認中も残す場合は次の手順 8 で **自分の IP のみ許可** に制限すること。
 

@@ -307,6 +307,9 @@ stages:
         azureSubscription: '$(azureServiceConnection)'
         appName: '$(webAppName)'
         containers: '$(acrLoginServer)/$(imageName):$(imageTag)'
+        # アプリはコンテナー内で 5000 番ポートを待ち受ける（app/Dockerfile）。
+        # App Service は既定でポート 80 をヘルスチェックするため、WEBSITES_PORT を明示する。
+        appSettings: '-WEBSITES_PORT 5000'
   - job: DeploySkipped
     displayName: 'Deploy skipped (not configured)'
     condition: ne(variables['DEPLOY_TO_AZURE'], 'true')
@@ -377,7 +380,7 @@ stages:
     #   2. 変数 USE_CODEQL を 'true' にする
     #   3. 下記タスク定義の行頭 "# " を外し、末尾の 'CodeQL placeholder'
     #      ステップ（echo のみ）を削除する
-    #   詳細手順: docs/DEFENDER-INTEGRATION.md の「CodeQL を有効化する」を参照
+    #   詳細手順: docs/setup/DEFENDER-INTEGRATION.md の「CodeQL を有効化する」を参照
     # 注意: VS Code のスキーマ検証はマーケットプレース拡張のタスクを認識
     #       しないため、コメント解除後はエディタ上に警告が出るが実行には
     #       影響しない。
@@ -420,7 +423,7 @@ stages:
     #   2. 変数 USE_DEFENDER_FOR_DEVOPS を 'true' にする
     #   3. 下記タスク定義の行頭 "# " を外し、末尾の
     #      'Microsoft Security DevOps placeholder' ステップ（echo のみ）を削除する
-    #   詳細手順: docs/DEFENDER-INTEGRATION.md の「連携手順」を参照
+    #   詳細手順: docs/setup/DEFENDER-INTEGRATION.md の「連携手順」を参照
     #   ※ tools は本体 OSS ステージ（Bandit）との重複を避けるため、
     #      trivy（コンテナ）と checkov（IaC / Dockerfile）に限定している。
     # 注意: VS Code のスキーマ検証はマーケットプレース拡張のタスクを認識
