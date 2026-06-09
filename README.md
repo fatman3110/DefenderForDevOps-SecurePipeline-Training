@@ -2,8 +2,10 @@
 
 Azure DevOps Pipelines を使った DevSecOps（セキュア CI/CD）の基本を学ぶための教材である。意図的に脆弱性を埋め込んだ Flask Web アプリケーションを題材に、ビルド・単体テスト・各種セキュリティスキャン・コンテナビルド・デプロイを通すパイプラインを構築し、実際にスキャン結果を確認したうえで脆弱性を修正する一連の流れを体験する。
 
-OSS スキャナ（Bandit / Semgrep / Gitleaks / pip-audit / OWASP ZAP）は追加ライセンスなしで常時実行する。コンテナー／IaC スキャン（Trivy / Checkov）は重複を避けるため本体では実行せず、Microsoft Security DevOps を有効化したときに同ステージ側で実行する。CodeQL（GitHub Advanced Security for Azure DevOps の機能）と Microsoft Security DevOps（Microsoft Defender for Cloud 連携）は有償ライセンスが前提のため、フラグで任意に有効化する。
+<!-- 画像をここに配置する。assets/overview.png を差し替えると下に表示される -->
+![本教材の全体像](./assets/overview.png)
 
+> OSS スキャナは常時実行するが、コンテナー／IaC スキャン重複を避けるため本体では実行せず、Microsoft Security DevOps を有効化したときに同ステージ側で実行する。CodeQL（GitHub Advanced Security for Azure DevOps の機能）と Microsoft Security DevOps（Microsoft Defender for Cloud 連携）は有償ライセンスが前提のため、フラグで任意に有効化する。
 > ⚠️ **教育目的の教材である。アプリケーションは意図的に脆弱性を含む。本番環境では使用しないこと。**
 
 ## 前提条件
@@ -80,7 +82,13 @@ Build ─▶ Test ─┬─▶ SAST (Bandit + Semgrep) ─┐
 ## トレーニング手順
 
 1. 本フォルダの内容を Azure DevOps の Git リポジトリにプッシュする。Azure DevOps の組織・プロジェクトがまだない場合は、先に [第1部（共通の事前準備）](./docs/AZURE-SETUP.md#第1部-共通の事前準備必須) で作成する。
-2. Azure DevOps 組織に [SARIF SAST Scans Tab](https://marketplace.visualstudio.com/items?itemName=sariftools.scans) 拡張をインストールする。この作業は Azure DevOps 組織の **Project Collection Administrators** グループのメンバーが行う（詳細は上記「必要な権限とロール」を参照）。
+2. Azure DevOps 組織に [SARIF SAST Scans Tab](https://marketplace.visualstudio.com/items?itemName=sariftools.scans) 拡張をインストールする（要 **Project Collection Administrators**。権限がない場合は手順内の操作で「リクエスト」し、管理者の承認後に自動インストールされる。詳細は上記「必要な権限とロール」を参照）。
+   1. ブラウザで Azure DevOps 組織（`https://dev.azure.com/{組織名}`）にサインインする。
+   2. 上部ツールバーの **ショッピングバッグ アイコン** > **[Manage extensions]**（拡張機能の管理）を開く。
+   3. **[Browse marketplace]**（Marketplace を参照）を選択する。
+   4. 検索ボックスに「SARIF SAST Scans Tab」と入力し、[SARIF SAST Scans Tab](https://marketplace.visualstudio.com/items?itemName=sariftools.scans) 拡張を開く。
+   5. **[Get it free]**（無料で入手）を選択し、ドロップダウンで対象の **組織** を選んで **[Install]** を選択する。権限がない場合はボタンが **[Request]** になるので、リクエストして管理者の承認を待つ。
+   6. **[Organization settings]** > **[Extensions]** > **[Installed]** タブに拡張が表示されることを確認する。
 3. **Pipelines** > **New pipeline** > **Azure Repos Git** を選択し、リポジトリの [`azure-pipelines.yml`](./azure-pipelines.yml) を指定する。
 4. パイプラインを実行する。次のいずれかの方法で実行できる。
 
@@ -115,7 +123,7 @@ Build ─▶ Test ─┬─▶ SAST (Bandit + Semgrep) ─┐
 
 ## (オプション) デプロイしたアプリケーションへのアクセス
 
-パイプラインの `Deploy` ステージは、ビルドしたコンテナイメージを **Azure Container Registry** にプッシュし、**Azure App Service**（PaaS ランタイム実行環境） にデプロイする。デプロイ後は Azure App Service の URL `https://<webAppName>.azurewebsites.net` でアプリにアクセスでき、脆弱性の手動確認（XSS・アクセスコントロール・Cookie など）が当該 URL 上で行える。
+パイプラインの `Deploy` ステージは、ビルドしたコンテナイメージを **Azure Container Registry** にプッシュし、**Azure App Service**（PaaS ランタイム実行環境） にデプロイする。デプロイ後は Azure App Service の **既定のドメイン**（`webAppName` にランダムな文字列とリージョンが付いた形式。例: `https://app-devsecops-training-xxxxxxxx.japaneast-01.azurewebsites.net`。正確な値は Azure Portal の Web アプリ **概要** で確認）でアプリにアクセスでき、脆弱性の手動確認（XSS・アクセスコントロール・Cookie など）が当該 URL 上で行える。
 本手順を行わない場合でも、CI/CD パイプラインの実行と脆弱性の確認が可能である。
 
 > 🛑 **このアプリは意図的に脆弱であり、`azurewebsites.net` は既定でインターネットに公開される。デプロイしたアプリを公開状態のまま放置しないこと。** 意図しない悪用を行われる可能性があるため、手動確認が済んだら、次のいずれかを必ず実施すること。
@@ -137,18 +145,20 @@ Build ─▶ Test ─┬─▶ SAST (Bandit + Semgrep) ─┐
    | デプロイ有効化 | `DEPLOY_TO_AZURE` | `true` |
 
 3. パイプラインを実行する。`Deploy` ステージが Azure Container Registry へのプッシュと Azure App Service へのデプロイを行う。
-4. デプロイ後、`https://<webAppName>.azurewebsites.net` にアクセスする。
+4. デプロイ後、Azure Portal の Web アプリ **概要** で確認できる **既定のドメイン**（例: `https://app-devsecops-training-xxxxxxxx.japaneast-01.azurewebsites.net`）にアクセスする。
 
 > `DEPLOY_TO_AZURE` が `true` でない場合、`Deploy` ステージはデプロイを行わずスキップ用のメッセージを表示して終了する（ビルドとスキャンは引き続き実行される）。
 
 ### デプロイ後の Web アプリケーション画面一覧
 
+下表の `<既定のドメイン>` は、Azure Portal の Web アプリ **概要** で確認できる実際のホスト名（例: `app-devsecops-training-xxxxxxxx.japaneast-01.azurewebsites.net`）に読み替える。
+
 | URL | 内容 |
 |-----|------|
-| `https://<webAppName>.azurewebsites.net/` | トップページ |
-| `https://<webAppName>.azurewebsites.net/login` | ログイン（`alice` / `alice-password`、`bob` / `bob-password`） |
-| `https://<webAppName>.azurewebsites.net/profile/1` | プロフィール（アクセスコントロールの脆弱性の確認に使用） |
-| `https://<webAppName>.azurewebsites.net/search?q=test` | 検索（クロスサイトスクリプティングの確認に使用） |
+| `https://<既定のドメイン>/` | トップページ |
+| `https://<既定のドメイン>/login` | ログイン（`alice` / `alice-password`、`bob` / `bob-password`） |
+| `https://<既定のドメイン>/profile/1` | プロフィール（アクセスコントロールの脆弱性の確認に使用） |
+| `https://<既定のドメイン>/search?q=test` | 検索（クロスサイトスクリプティングの確認に使用） |
 
 ###  (オプション) ローカルでの起動
 
