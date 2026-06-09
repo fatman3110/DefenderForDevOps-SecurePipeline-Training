@@ -26,6 +26,7 @@ AWS_SECRET_ACCESS_KEY = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 **修正後**
 
 ```python
+import os
 from azure.identity import DefaultAzureCredential
 from azure.keyvault.secrets import SecretClient
 
@@ -43,7 +44,7 @@ AWS_ACCESS_KEY_ID = secret_client.get_secret("aws-access-key-id").value
 AWS_SECRET_ACCESS_KEY = secret_client.get_secret("aws-secret-access-key").value
 ```
 
-> シークレットの値ではなく **Key Vault の URI だけ**をアプリ設定で渡す点がポイント。Key Vault へのアクセスに使う SDK（認証用の `azure-identity`、シークレット取得用の `azure-keyvault-secrets`）が必要なので `requirements.txt` に両方を追加し、App Service のマネージド ID に Key Vault の **Key Vault シークレット ユーザー** ロール（または get/list アクセスポリシー）を付与しておくこと。
+> シークレットの値ではなく **Key Vault の URI だけ** だけが閲覧可能になっている。Key Vault へのアクセスに使う SDK（認証用の `azure-identity`、シークレット取得用の `azure-keyvault-secrets`）が必要なので `requirements.txt` に両方を追加し、App Service のマネージド ID に Key Vault の **Key Vault シークレット ユーザー** ロール（または get/list アクセスポリシー）を付与しておくこと。また、修正を行いたい場合、Azure Key Vault の設定も必要となるが、本モジュールでは実際に利用していないダミー認証情報を渡しているため、Azure Key Vault の設定手順は記載を省略している。
 
 ---
 
@@ -110,14 +111,18 @@ gunicorn>=22.0.0
 
 ## #4 クロスサイトスクリプティング（XSS）
 
-ユーザー入力を文字列連結で HTML に埋め込まず、自動エスケープされるテンプレートを使う。
+ユーザー入力を文字列連結で HTML に埋め込まず、テンプレートの変数として渡して自動エスケープを効かせる。`render_template_string` を使い続ける場合でも、ユーザー入力を**テンプレート本文に連結せず**、`{{ query }}` のように変数として渡せば安全になる。
 
 **修正前**
 
 ```python
 query = request.args.get("q", "")
 template = (
-    "<!doctype html>...<p>検索ワード: " + query + "</p>..."
+    "<!doctype html><html><head><title>検索結果</title></head><body>"
+    "<h1>検索結果</h1>"
+    "<p>検索ワード: " + query + "</p>"
+    '<p><a href="/">トップへ戻る</a></p>'
+    "</body></html>"
 )
 return render_template_string(template)
 ```
@@ -126,16 +131,17 @@ return render_template_string(template)
 
 ```python
 query = request.args.get("q", "")
-return render_template("search.html", query=query)
+template = (
+    "<!doctype html><html><head><title>検索結果</title></head><body>"
+    "<h1>検索結果</h1>"
+    "<p>検索ワード: {{ query }}</p>"
+    '<p><a href="/">トップへ戻る</a></p>'
+    "</body></html>"
+)
+return render_template_string(template, query=query)
 ```
 
-`search.html`（Jinja2 の自動エスケープが有効）
-
-```html
-<p>検索ワード: {{ query }}</p>
-```
-
-入力を変数としてテンプレートに渡すことで、`{{ query }}` が自動的にエスケープされる。ユーザー入力を `render_template_string` のテンプレート本文に連結しないこと。
+ポイントは、ユーザー入力を `+` で**テンプレート本文に連結しない**こと。`{{ query }}` のプレースホルダに**データとして渡す**ことで、Jinja2 の自動エスケープが効き `<script>` などが無害化される。新しいテンプレートファイルを追加する必要はない。
 
 ---
 
