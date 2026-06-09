@@ -1,0 +1,84 @@
+# ============================================================
+# OWASP ZAP Automation Framework プラン（認証付き DAST）
+#
+# zap-baseline.py（未認証・passive のみ）の代わりに、フォーム認証で
+# ログインした状態で spider → passive scan → active scan を実行する。
+# 認証セッションを維持したままスキャンすることで、ログイン後の画面に
+# 対しても反射型 XSS（脆弱性 #4）などを能動的に検出できる。
+#
+# 実行: zap.sh -cmd -autorun /zap/wrk/zap.yaml
+# 参考: https://www.zaproxy.org/docs/desktop/addons/automation-framework/
+# ============================================================
+env:
+  contexts:
+    - name: "DefenderForDevOpsApp"
+      urls:
+        - "http://localhost:5000"
+      includePaths:
+        - "http://localhost:5000.*"
+      excludePaths:
+        # ログアウトを踏むとセッションが切れてスキャンが未認証に戻るため除外する
+        - "http://localhost:5000/logout.*"
+      authentication:
+        method: "form"
+        parameters:
+          loginPageUrl: "http://localhost:5000/login"
+          loginRequestUrl: "http://localhost:5000/login"
+          # {%username%} / {%password%} は users の credentials で置換される
+          loginRequestBody: "username={%username%}&password={%password%}"
+        verification:
+          # ログイン後のページに含まれる文字列でログイン状態を判定する
+          method: "response"
+          loggedInRegex: "ログアウト"
+          loggedOutRegex: "ログインしていません"
+      sessionManagement:
+        # Flask の署名付きセッション Cookie でログイン状態を維持する
+        method: "cookie"
+      users:
+        - name: "alice"
+          credentials:
+            username: "alice"
+            password: "alice-password"
+  parameters:
+    # 教材用途のため、AF ジョブのエラー／警告ではプロセスを終了させない
+    failOnError: false
+    failOnWarning: false
+    continueOnFailure: true
+    progressToStdout: true
+
+jobs:
+  # 認証ユーザーとしてサイトをクロールする
+  - type: spider
+    parameters:
+      context: "DefenderForDevOpsApp"
+      user: "alice"
+      url: "http://localhost:5000"
+    tests:
+      - name: "At least one URL found"
+        type: stats
+        statistic: "spider.urls.added"
+        operator: ">="
+        value: 1
+        onFail: "info"
+
+  # passive scan の完了を待つ
+  - type: passiveScan-wait
+
+  # active scan: 認証セッションを保ったままペイロードを送り込み、
+  # 反射型 XSS（脆弱性 #4）などを能動的に検出する。
+  - type: activeScan
+    parameters:
+      context: "DefenderForDevOpsApp"
+      user: "alice"
+
+  # 検出結果を HTML / JSON レポートとして出力する
+  - type: report
+    parameters:
+      template: "traditional-html"
+      reportDir: "/zap/wrk"
+      reportFile: "zap-report.html"
+  - type: report
+    parameters:
+      template: "traditional-json"
+      reportDir: "/zap/wrk"
+      reportFile: "zap-report.json"

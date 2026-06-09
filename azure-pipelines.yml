@@ -318,9 +318,11 @@ stages:
       displayName: 'Deploy placeholder'
 
 # ============================================================
-# Stage: DAST — OWASP ZAP Baseline（独立ステージ）
+# Stage: DAST — OWASP ZAP Automation Framework（独立ステージ）
 # Test にのみ依存し、デプロイチェーンとは独立して実行する。
-# 結果は HTML レポートとしてアーティファクトに発行する。
+# dast/zap.yaml のプランに従い、フォーム認証でログインしてから
+# spider + passive scan を実行する（ログイン後の /profile もクロール対象）。
+# 結果は HTML / JSON レポートとしてアーティファクトに発行する。
 # ============================================================
 - stage: DAST
   displayName: 'DAST (OWASP ZAP)'
@@ -328,7 +330,7 @@ stages:
   condition: succeeded()
   jobs:
   - job: Dast
-    displayName: 'Run OWASP ZAP Baseline'
+    displayName: 'Run OWASP ZAP (authenticated)'
     steps:
     - script: |
         set +e
@@ -338,12 +340,14 @@ stages:
         sleep 5
         mkdir -p zap
         chmod 777 zap
+        # Automation Framework プランをマウント先（/zap/wrk）に配置する
+        cp dast/zap.yaml zap/zap.yaml
         docker run --rm --network host -v $(Build.SourcesDirectory)/zap:/zap/wrk:rw \
-          ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
-          -t http://localhost:5000 -r zap-report.html -J zap-report.json
+          ghcr.io/zaproxy/zaproxy:stable \
+          zap.sh -cmd -autorun /zap/wrk/zap.yaml
         echo "ZAP scan finished with exit code $?"
         exit 0
-      displayName: 'ZAP baseline scan'
+      displayName: 'ZAP authenticated scan'
       continueOnError: 'true'
     - task: PublishPipelineArtifact@1
       displayName: 'Publish ZAP report'
@@ -366,10 +370,18 @@ stages:
   - job: CodeQL
     displayName: 'Run CodeQL'
     steps:
-    # GitHub Advanced Security for Azure DevOps 拡張が必要。
-    # 拡張を組織にインストールしたうえで、下記タスクのコメントを解除して有効化する。
-    # 注意: VS Code のスキーマ検証はマーケットプレース拡張のタスクを認識しないため、
-    #       コメント解除後はローカルエディタ上に警告が出るが、実行には影響しない。
+    # ------------------------------------------------------------
+    # 【このステージを有効化する手順】
+    #   1. 対象リポジトリで GitHub Advanced Security for Azure DevOps を有効化する
+    #      （Project settings > Repos > Repositories > 対象リポジトリ > [Enable]）
+    #   2. 変数 USE_CODEQL を 'true' にする
+    #   3. 下記タスク定義の行頭 "# " を外し、末尾の 'CodeQL placeholder'
+    #      ステップ（echo のみ）を削除する
+    #   詳細手順: docs/DEFENDER-INTEGRATION.md の「CodeQL を有効化する」を参照
+    # 注意: VS Code のスキーマ検証はマーケットプレース拡張のタスクを認識
+    #       しないため、コメント解除後はエディタ上に警告が出るが実行には
+    #       影響しない。
+    # ------------------------------------------------------------
     # - task: AdvancedSecurity-Codeql-Init@1
     #   displayName: 'Initialize CodeQL'
     #   inputs:
@@ -378,7 +390,7 @@ stages:
     # - task: AdvancedSecurity-Codeql-Analyze@1
     #   displayName: 'CodeQL Analyze'
     - script: |
-        echo "CodeQL を実行するには GitHub Advanced Security for Azure DevOps 拡張をインストールし、上記タスクのコメントを解除する。"
+        echo "CodeQL を実行するには GitHub Advanced Security for Azure DevOps を有効化し、上記タスクのコメントを解除する。"
       displayName: 'CodeQL placeholder'
 
 # ============================================================
@@ -402,11 +414,19 @@ stages:
     - script: |
         docker load -i $(Pipeline.Workspace)/docker-image/image.tar
       displayName: 'Load image for container scan'
-    # Microsoft Security DevOps 拡張が必要。拡張を組織にインストールしたうえで、
-    # 下記タスクのコメントを解除して有効化する。本体 OSS ステージ（Bandit）との重複を
-    # 避けるため、tools は trivy（コンテナ）と checkov（IaC / Dockerfile）に限定している。
-    # 注意: VS Code のスキーマ検証はマーケットプレス拡張のタスクを認識しないため、
-    #       コメント解除後はローカルエディタ上に警告が出るが、実行には影響しない。
+    # ------------------------------------------------------------
+    # 【このステージを有効化する手順】
+    #   1. 組織に Microsoft Security DevOps 拡張をインストールする
+    #   2. 変数 USE_DEFENDER_FOR_DEVOPS を 'true' にする
+    #   3. 下記タスク定義の行頭 "# " を外し、末尾の
+    #      'Microsoft Security DevOps placeholder' ステップ（echo のみ）を削除する
+    #   詳細手順: docs/DEFENDER-INTEGRATION.md の「連携手順」を参照
+    #   ※ tools は本体 OSS ステージ（Bandit）との重複を避けるため、
+    #      trivy（コンテナ）と checkov（IaC / Dockerfile）に限定している。
+    # 注意: VS Code のスキーマ検証はマーケットプレース拡張のタスクを認識
+    #       しないため、コメント解除後はエディタ上に警告が出るが実行には
+    #       影響しない。
+    # ------------------------------------------------------------
     # - task: MicrosoftSecurityDevOps@1
     #   displayName: 'Microsoft Security DevOps'
     #   inputs:

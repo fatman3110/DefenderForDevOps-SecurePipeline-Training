@@ -59,6 +59,10 @@
          value: 'true'              # 'false' から変更
      ```
 
+   - 同じ [`azure-pipelines.yml`](../azure-pipelines.yml) の `MicrosoftSecurityDevOps` ステージ内で、コメントアウトされた `MicrosoftSecurityDevOps@1` タスクの行頭 `# ` を外して有効化し、末尾の `Microsoft Security DevOps placeholder` ステップ（echo のみ）を削除する。変数を `'true'` にしてもタスクのコメントを解除しない限り placeholder の echo が動くだけで、実スキャンは実行されない。
+
+     > VS Code のスキーマ検証はマーケットプレース拡張のタスクを認識しないため、コメント解除後はエディタ上に警告が出るが、実行には影響しない。
+
    - 変更を保存し、`trigger` 対象ブランチ（`main` / `master`）へコミットして push する。
 
      ```bash
@@ -102,3 +106,28 @@ Microsoft Security DevOps は、複数の静的解析ツールを内包したコ
 ## CodeQL（GitHub Advanced Security for Azure DevOps）との違い
 
 - **CodeQL** は GitHub Advanced Security for Azure DevOps の機能で、結果は **Azure DevOps ポータル**（`dev.azure.com`）のリポジトリ画面 **Advanced Security > Code scanning alerts** に表示される。Microsoft Defender for Cloud の DevOps security とは別系統で、別途 GitHub Advanced Security for Azure DevOps のライセンスが必要になる。
+
+## CodeQL を有効化する
+
+本体パイプラインの `CodeQL` ステージは、既定ではスキャンは実行されない。以下の手順で有効化する。
+
+### 手順
+
+1. **リポジトリで Advanced Security を有効化**
+   - Azure DevOps プロジェクトの **[Project settings]** を開く。
+   - **[Repos]** > **[Repositories]** を選択し、対象のリポジトリを選ぶ。
+   - **[Enable]** と **[Begin billing to activate Advanced Security]** を選択する。有効化されたリポジトリにはシールドアイコンが表示される。
+
+   > 出典: [Configure GitHub Advanced Security for Azure DevOps](https://learn.microsoft.com/azure/devops/repos/security/configure-github-advanced-security-features)（Repository-level onboarding）
+
+2. **変数を有効化**
+   - [`azure-pipelines.yml`](../azure-pipelines.yml) の `variables:` ブロック内にある `USE_CODEQL` の `value` を `'false'` から `'true'` に書き換える。
+
+3. **タスクのコメントを解除**
+   - 同ファイルの `CodeQL` ステージ内で、コメントアウトされた `AdvancedSecurity-Codeql-Init@1` / `AdvancedSecurity-Codeql-Analyze@1` タスクの行頭 `# ` を外し、末尾の `CodeQL placeholder` ステップ（echo のみ）を削除する。
+
+4. **コミットして push**
+   - `trigger` 対象ブランチ（`main` / `master` など）へコミットして push すると、CI トリガーで `CodeQL` ステージが実行される。
+
+5. **結果の確認**
+   - Azure DevOps ポータルのリポジトリ画面 **Advanced Security > Code scanning alerts** で検出結果を確認する。
