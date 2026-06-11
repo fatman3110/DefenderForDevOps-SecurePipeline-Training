@@ -274,7 +274,6 @@ stages:
 # DEPLOY_TO_AZURE=true かつ各サービス接続・変数が設定されている場合に実行する。
 # 1) ビルド済みイメージを Azure Container Registry へプッシュ
 # 2) Azure Web App for Containers にデプロイ
-# デプロイ後は https://<webAppName>.azurewebsites.net でアプリにアクセスできる。
 # ============================================================
 - stage: Deploy
   displayName: 'Deploy (Azure Web App for Containers)'
@@ -363,7 +362,7 @@ stages:
 # Stage: CodeQL（任意・有償）— GitHub Advanced Security for Azure DevOps
 # 独立ステージ。USE_CODEQL=true のときのみ実行する。
 # 結果は Advanced Security の Code scanning alerts に表示される。
-# 注意: CodeQL は OSS ツールではなく、商用 CI/CD では GitHub Advanced Security for Azure DevOps のライセンスが必要。
+# 注意: CodeQL は OSS ツールではなく、商用 CI/CD では GitHub Advanced Security のライセンスが必要。
 # ============================================================
 - stage: CodeQL
   displayName: 'CodeQL (optional, GitHub Advanced Security for Azure DevOps)'
@@ -378,8 +377,8 @@ stages:
     #   1. 対象リポジトリで GitHub Advanced Security for Azure DevOps を有効化する
     #      （Project settings > Repos > Repositories > 対象リポジトリ > [Enable]）
     #   2. 変数 USE_CODEQL を 'true' にする
-    #   3. 下記タスク定義の行頭 "# " を外し、末尾の 'CodeQL placeholder'
-    #      ステップ（echo のみ）を削除する
+    #   3. 下記タスク定義の各行頭 "# " を外し、末尾の 'CodeQL placeholder'
+    #      ステップ（echo のみが実行されている）を削除する
     #   詳細手順: docs/setup/DEFENDER-INTEGRATION.md の「CodeQL を有効化する」を参照
     # 注意: VS Code のスキーマ検証はマーケットプレース拡張のタスクを認識
     #       しないため、コメント解除後はエディタ上に警告が出るが実行には
@@ -421,14 +420,11 @@ stages:
     # 【このステージを有効化する手順】
     #   1. 組織に Microsoft Security DevOps 拡張をインストールする
     #   2. 変数 USE_DEFENDER_FOR_DEVOPS を 'true' にする
-    #   3. 下記タスク定義の行頭 "# " を外し、末尾の
-    #      'Microsoft Security DevOps placeholder' ステップ（echo のみ）を削除する
+    #   3. 下記タスク定義の各行頭 "# " を外し、末尾の
+    #      'Microsoft Security DevOps placeholder' ステップ（echo のみが実行されている）を削除する
     #   詳細手順: docs/setup/DEFENDER-INTEGRATION.md の「連携手順」を参照
     #   ※ tools は本体 OSS ステージ（Bandit）との重複を避けるため、
     #      trivy（コンテナ）と checkov（IaC / Dockerfile）に限定している。
-    # 注意: VS Code のスキーマ検証はマーケットプレース拡張のタスクを認識
-    #       しないため、コメント解除後はエディタ上に警告が出るが実行には
-    #       影響しない。
     # ------------------------------------------------------------
     # - task: MicrosoftSecurityDevOps@1
     #   displayName: 'Microsoft Security DevOps'

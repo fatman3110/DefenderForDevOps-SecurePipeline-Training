@@ -9,3 +9,8 @@ itsdangerous==2.0.1
 MarkupSafe==2.0.1
 # 本番起動用 WSGI サーバ
 gunicorn==20.1.0
+# 脆弱性 #1 の修正用: シークレットを Azure Key Vault から取得する
+# 認証用（DefaultAzureCredential / マネージド ID）
+azure-identity>=1.17.0
+# シークレット取得用（SecretClient）
+azure-keyvault-secrets>=4.8.0

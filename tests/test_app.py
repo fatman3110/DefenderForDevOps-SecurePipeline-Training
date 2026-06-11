@@ -2,7 +2,8 @@
 機能ユニットテスト。
 
 セキュリティスキャンとは別に、アプリの基本機能が動作することを検証する。
-受講者が脆弱性を修正した後も、これらのテストが通ることで機能の回帰がないことを確認できる。
+脆弱性を修正した後も、これらのテストが通ることで機能のデグレードがないことを確認できる。
+一般的なCI/CDパイプラインでも単体テストや連結テストが行われる。
 """
 import os
 import sys
@@ -11,7 +12,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 
-from app import app as flask_app  # noqa: E402
+from app import app as flask_app
 
 
 @pytest.fixture
